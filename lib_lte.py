@@ -183,7 +183,7 @@ def missionPortData():
                             break
                     else:
                         lteQ[key_arr[idx - 1]] = int(str(data))
-                print(lteQ)
+                # print(lteQ)
             else:
                 pass
 
