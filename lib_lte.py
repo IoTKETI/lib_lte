@@ -21,7 +21,7 @@ missionPort = None
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print('[msw_mqtt_connect] connect to ', broker_ip)
+        print('[msw_mqtt_connect] connect to', broker_ip)
     else:
         print("Bad connection Returned code=", rc)
 
@@ -88,11 +88,16 @@ def missionPortError(err):
 
 def lteReqGetRssi():
     global missionPort
+    global missionBaudrate
 
     if missionPort is not None:
         if missionPort.is_open:
-            atcmd = b'AT@DBG\r'
-            missionPort.write(atcmd)
+            if int(missionBaudrate) == 115200:
+                atcmd = b'AT@DBG\r'
+                missionPort.write(atcmd)
+            elif int(missionBaudrate) == 57600:
+                atcmd = b'AT+QCSQ\r'
+                missionPort.write(atcmd)
 
 
 def send_data_to_msw(data_topic, obj_data):
@@ -103,60 +108,91 @@ def send_data_to_msw(data_topic, obj_data):
 
 def missionPortData():
     global missionPort
+    global missionBaudrate
     global lteQ
 
     try:
         lteReqGetRssi()
         missionStr = missionPort.readlines()
 
-        end_data = (missionStr[-1].decode('utf-8'))[:-2]
+        if int(missionBaudrate) == 115200:
+            end_data = (missionStr[-1].decode('utf-8'))[:-2]
 
-        if end_data == 'OK':
-            data_arr = missionStr[1].decode().split(',')
+            if end_data == 'OK':
+                data_arr = missionStr[1].decode().split(',')
 
-            lteQ = dict()
-            for d in data_arr:
-                d_arr = d.split(':')
-                if d_arr[0] == '@DBG':
-                    key = d_arr[1]
-                    value = d_arr[2]
-                else:
-                    key = d_arr[0]
-                    if '\r\n' in d_arr[1]:
-                        value = d_arr[1].replace('\r\n', '')
+                lteQ = dict()
+                for d in data_arr:
+                    d_arr = d.split(':')
+                    if d_arr[0] == '@DBG':
+                        key = d_arr[1]
+                        value = d_arr[2]
                     else:
-                        value = d_arr[1]
+                        key = d_arr[0]
+                        if '\r\n' in d_arr[1]:
+                            value = d_arr[1].replace('\r\n', '')
+                        else:
+                            value = d_arr[1]
 
-                if ' ' == key[0]:
-                    key = key[1:]
+                    if ' ' == key[0]:
+                        key = key[1:]
 
-                lteQ[key] = value
+                    lteQ[key] = value
 
-            data_keys = list(lteQ.keys())
-            if 'Bandwidth' in data_keys:
-                lteQ['Carrier'] = 'KT'
-            elif 'MSISDN' in data_keys:
-                lteQ['Carrier'] = 'SKT'
-            elif 'Frequency' in data_keys:
-                lteQ['Carrier'] = 'LGU'
-            else:
-                if 'Cell-ID' in data_keys:
+                data_keys = list(lteQ.keys())
+                if 'Bandwidth' in data_keys:
                     lteQ['Carrier'] = 'KT'
-                elif 'Cell(PCI)' in data_keys:
+                elif 'MSISDN' in data_keys:
                     lteQ['Carrier'] = 'SKT'
-                elif 'Cell ID' in data_keys:
+                elif 'Frequency' in data_keys:
                     lteQ['Carrier'] = 'LGU'
-            # print(lteQ['Carrier'])
-            # print(lteQ)
-        else:
-            pass
+                else:
+                    if 'Cell-ID' in data_keys:
+                        lteQ['Carrier'] = 'KT'
+                    elif 'Cell(PCI)' in data_keys:
+                        lteQ['Carrier'] = 'SKT'
+                    elif 'Cell ID' in data_keys:
+                        lteQ['Carrier'] = 'LGU'
+                # print(lteQ['Carrier'])
+                # print(lteQ)
+            else:
+                pass
 
-        data_topic = '/MUV/data/' + lib["name"] + '/' + lib["data"][0]
-        lteQ = json.dumps(lteQ)
+            data_topic = '/MUV/data/' + lib["name"] + '/' + lib["data"][0]
+            lteQ = json.dumps(lteQ)
 
-        send_data_to_msw(data_topic, lteQ)
+            send_data_to_msw(data_topic, lteQ)
 
-        lteQ = json.loads(lteQ)
+            lteQ = json.loads(lteQ)
+        elif int(missionBaudrate) == 57600:
+            end_data = (missionStr[-1].decode('utf-8'))[:-2]
+
+            if end_data == 'OK':
+                data_arr = missionStr[0].decode().split(',')
+                key_arr = ["RSSI", "RSRP", "SINR", "RSRQ"]
+                lteQ = dict()
+                for idx, data in enumerate(data_arr):
+                    if idx == 0:
+                        _data_arr = data.split(': ')
+                        cmd = _data_arr[0]
+                        sysmode = _data_arr[1]
+                        if cmd == '+QCSQ' and sysmode == '"LTE"':
+                            lteQ['Carrier'] = 'SKT'
+                            pass
+                        else:
+                            break
+                    else:
+                        lteQ[key_arr[idx - 1]] = int(str(data))
+                print(lteQ)
+            else:
+                pass
+
+            data_topic = '/MUV/data/' + lib["name"] + '/' + lib["data"][0]
+            lteQ = json.dumps(lteQ)
+
+            send_data_to_msw(data_topic, lteQ)
+
+            lteQ = json.loads(lteQ)
 
     except serial.SerialException as e:
         missionPortError(e)
