@@ -4,6 +4,8 @@ import os
 import serial
 import signal
 import sys
+import time
+import threading
 
 import paho.mqtt.client as mqtt
 
@@ -165,10 +167,10 @@ def missionPortData():
 
             lteQ = json.loads(lteQ)
         elif int(missionBaudrate) == 57600:
-            end_data = (missionStr[-1].decode('utf-8'))[:-2]
+            end_data = (missionStr[-1].decode('utf-8'))
 
-            if end_data == 'OK':
-                data_arr = missionStr[0].decode().split(',')
+            if end_data == 'OK\r\n':
+                data_arr = missionStr[1].decode().split(',')
                 key_arr = ["RSSI", "RSRP", "SINR", "RSRQ"]
                 lteQ = dict()
                 for idx, data in enumerate(data_arr):
@@ -188,11 +190,12 @@ def missionPortData():
                 pass
 
             data_topic = '/MUV/data/' + lib["name"] + '/' + lib["data"][0]
-            lteQ = json.dumps(lteQ)
+            _lteQ = json.dumps(lteQ)
 
-            send_data_to_msw(data_topic, lteQ)
+            threading.Timer(1.0, send_data_to_msw, [data_topic, _lteQ]).start()
 
-            lteQ = json.loads(lteQ)
+            lteQ = json.loads(_lteQ)
+            time.sleep(1)
 
     except serial.SerialException as e:
         missionPortError(e)
